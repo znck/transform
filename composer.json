@@ -1,0 +1,21 @@
+{
+  "name": "znck/transform",
+  "description": "An auto transformer for Eloquent.",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Rahul Kadyan",
+      "email": "hi@znck.me"
+    }
+  ],
+  "require": {
+    "illuminate/database": "^5.4",
+    "illuminate/http": "^5.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Znck\\Transform\\": "src/"
+    }
+  }
+}
