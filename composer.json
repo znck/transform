@@ -17,5 +17,13 @@
     "psr-4": {
       "Znck\\Transform\\": "src/"
     }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Test\\Znck\\Transform\\": "test/"
+    }
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^6.0"
   }
 }

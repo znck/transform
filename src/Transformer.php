@@ -2,6 +2,8 @@
 
 namespace Znck\Transform;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model as Eloquent;
 use Illuminate\Http\Request;
@@ -9,6 +11,7 @@ use Illuminate\Support\Collection;
 
 class Transformer
 {
+    protected $metaKey = '_meta';
     /**
      * @var array
      */
@@ -33,6 +36,10 @@ class Transformer
     {
         $this->request = $request->query('_schema', []);
 
+        if (is_string($this->request)) {
+            $this->request = json_decode($this->request, true);
+        }
+
         $root = array_first(array_keys($this->request));
 
         if (count($this->request) === 1 and is_array($this->request[$root])) {
@@ -45,7 +52,7 @@ class Transformer
     /**
      * Transform anything!
      *
-     * @param Eloquent|EloquentCollection|Collection $any
+     * @param Eloquent|EloquentCollection|Collection|Paginator $any
      * @param array|null $fields
      *
      * @return array|mixed
@@ -58,6 +65,8 @@ class Transformer
             return $this->transformEloquentCollection($any, $fields);
         } elseif ($any instanceof Collection) {
             return $this->transformCollection($any, $fields);
+        } elseif ($any instanceof Paginator) {
+            return $this->transformPaginator($any, $fields);
         }
 
         return $any;
@@ -73,17 +82,19 @@ class Transformer
      */
     public function transformModel(Eloquent $model, array $fields = null): array
     {
-        $fields = $this->normalize($fields);
-
         $response = [];
 
-        foreach ($fields as $key => $value) {
-            $response[$key] = is_array($value) ?
-                $this->transform($model->${$key}, $value) :
-                $model->${$key};
+        foreach ($this->normalize($fields) as $key => $value) {
+            if (is_array($value)) {
+                $response[$key] = $this->transform($model->{$key}, $value);
+            } elseif (is_string($value) and is_numeric($key)) {
+                $response[$value] = $model->{$value};
+            } else {
+                $response[$key] = $model->{$key};
+            }
         }
 
-        return $this->wrap($response);
+        return $this->wrap($response, $fields);
     }
 
     /**
@@ -96,15 +107,13 @@ class Transformer
      */
     public function transformEloquentCollection(EloquentCollection $models, array $fields = null): array
     {
-        $fields = $this->normalize($fields);
-
         $response = [];
 
         foreach ($models as $model) {
-            $response[] = $this->transformModel($model, $fields);
+            $response[] = $this->transformModel($model, $this->normalize($fields));
         }
 
-        return $this->wrap($response);
+        return $this->wrap($response, $fields);
     }
 
     /**
@@ -117,15 +126,54 @@ class Transformer
      */
     public function transformCollection(Collection $items, array $fields = null): array
     {
-        $fields = $this->normalize($fields);
-
         $response = [];
 
         foreach ($items as $item) {
-            $response[] = $this->transform($item, $fields);
+            $response[] = $this->transform($item, $this->normalize($fields));
         }
 
-        return $this->wrap($response);
+        return $this->wrap($response, $fields);
+    }
+
+    /**
+     * Transform any paginator.
+     *
+     * @param \Illuminate\Contracts\Pagination\Paginator $any
+     * @param array|null $fields
+     *
+     * @return array
+     */
+    public function transformPaginator(Paginator $any, array $fields = null): array
+    {
+        $response = $this->transform(collect($any->items()), $this->normalize($fields));
+        $response[$this->metaKey] = $this->transformPaginatorMeta($any);
+
+        return $this->wrap($response, $fields);
+    }
+
+    /**
+     * Transform paginator meta.
+     *
+     * @param \Illuminate\Contracts\Pagination\Paginator $paginator
+     *
+     * @return array
+     */
+    public function transformPaginatorMeta(Paginator $paginator): array
+    {
+        $paginator = [
+            'current_page' => $paginator->currentPage(),
+            'count' => count($paginator->items()),
+            'next_page_url' => $paginator->nextPageUrl(),
+            'prev_page_url' => $paginator->previousPageUrl(),
+            'per_page' => $paginator->perPage(),
+        ];
+
+        if ($paginator instanceof LengthAwarePaginator) {
+            $paginator ['total_pages'] = $paginator->lastPage();
+            $paginator['total'] = $paginator->total();
+        }
+
+        return compact('paginator');
     }
 
     /**
@@ -166,23 +214,24 @@ class Transformer
     /**
      * Wrap response or not.
      *
-     * @param $response
+     * @param array $response
+     * @param array|null $fields
      *
      * @return array
      */
-    protected function wrap($response): array
+    protected function wrap(array $response, array $fields = null): array
     {
-        return $this->root ? [$this->root = $response] : $response;
+        return (is_null($fields) and $this->root) ? [$this->root => $response] : $response;
     }
 
     /**
      * Choose which fields to use.
      *
-     * @param array $fields
+     * @param array|null $fields
      *
      * @return array
      */
-    protected function normalize(array $fields): array
+    protected function normalize(array $fields = null): array
     {
         return is_null($fields) ? $this->request : $fields;
     }
