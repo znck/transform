@@ -27,6 +27,8 @@ class Transformer
      */
     protected $root;
 
+    protected $handlers = [];
+
     /**
      * Transformer constructor.
      *
@@ -48,6 +50,10 @@ class Transformer
         }
     }
 
+    public function register(callable $handler)
+    {
+        $this->handlers[] = $handler;
+    }
 
     /**
      * Transform anything!
@@ -87,11 +93,15 @@ class Transformer
         foreach ($this->normalize($fields) as $key => $value) {
             if (is_array($value)) {
                 $response[$key] = $this->transform($model->{$key}, $value);
-            } elseif (is_string($value) and is_numeric($key)) {
+            } elseif (is_string($value) and is_numeric($key) and !$model->isGuarded($value)) {
                 $response[$value] = $model->{$value};
-            } else {
+            } elseif (!$model->isGuarded($key)) {
                 $response[$key] = $model->{$key};
             }
+        }
+
+        foreach ($this->handlers as $handler) {
+            $response = array_merge($response, (array)$handler($model));
         }
 
         return $this->wrap($response, $fields);
